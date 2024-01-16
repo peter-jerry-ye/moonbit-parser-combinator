@@ -27,8 +27,8 @@ pub fn pstring(string: String) -> Parser[String] {
       if str.bytes.length() - str.offset < bytes.length() {
         None
       } else {
-        var i = 0
-        var has_result = true
+        let mut i = 0
+        let mut has_result = true
         let length = bytes.length()
         while i < length, i = i + 1 {
           if bytes[i] != str.bytes[str.offset + i] {
@@ -94,8 +94,8 @@ pub fn map[A, B](self : Parser[A], f : (A) -> B) -> Parser[B] {
 }
 
 fn fold_right[A, B](array: Array[A], f: (A, B) -> B, b: B) -> B {
-  var i = array.length() - 1
-  var result = b
+  let mut i = array.length() - 1
+  let mut result = b
   while i >= 0, i = i - 1 {
     result = f(array[i], result)
   }
