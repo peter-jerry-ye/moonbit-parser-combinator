@@ -1,4 +1,4 @@
-struct Tokens {
+priv struct Tokens {
   bytes : Bytes
   offset : Int
 }
@@ -194,6 +194,84 @@ pub fn sequence[A](parser_list : List[Parser[A]]) -> Parser[List[A]] {
   }
 }
 
+fn repeat[A](a : A, n : Int) -> List[A] {
+  let mut list : List[A] = Nil
+  let mut i = 0
+  while i < n, i = i + 1 {
+    list = Cons(a, list)
+  }
+  list
+}
+
+fn list_to_array[A](list : List[A], length : Int) -> Array[A] {
+  match list {
+    Cons(hd, _) => {
+      let array = Array::make(length, hd)
+      let mut l = list
+      let mut i = 0
+      while i < length, i = i + 1 {
+        match l {
+          Nil => break
+          Cons(hd, tl) => {
+            array[i] = hd
+            l = tl
+          }
+        }
+      }
+      array
+    }
+    Nil => Array::default()
+  }
+}
+
+pub fn Parser::repeat_n[A](self : Parser[A], n : Int) -> Parser[Array[A]] {
+  if n <= 0 {
+    pfail()
+  } else {
+    sequence(repeat(self, n)).map(fn(l) { list_to_array(l, n) })
+  }
+}
+
+pub fn Parser::repeat_n_with_sep[A, B](self : Parser[A], n : Int,
+        sep : Parser[B]) -> Parser[Array[A]] {
+  if n <= 0 {
+    pfail()
+  } else if n == 1 {
+    self.map(fn(v) { Array::make(1, v) })
+  } else {
+    sequence(
+      Cons(self, repeat(sep.optional().and_then(self).omit_first(), n - 1)),
+    ).map(fn(l) { list_to_array(l, n) })
+  }
+}
+
+pub fn Parser::repeat_0_to_n[A](self : Parser[A], n : Int) -> Parser[List[A]] {
+  {
+    parse: fn(str) {
+      let mut tokens = str
+      let mut list : List[A] = Nil
+      let mut i = 0
+      while i < n, i = i + 1 {
+        match (self.parse)(tokens) {
+          Some(v, rest) => {
+            tokens = rest
+            list = Cons(v, list)
+          }
+          None => break
+        }
+      }
+      Some(list, tokens)
+    },
+  }
+}
+
+pub fn Parser::repeat_0_to_n_with_sep[A, B](self : Parser[A], n : Int,
+        sep : Parser[B]) -> Parser[List[A]] {
+  self.and_then(sep.optional().and_then(self).omit_first().repeat_0_to_n(n - 1)).map(
+    fn(p) { List::Cons(p.0, p.1) },
+  ).or_else(pconst(Nil))
+}
+
 pub fn Parser::many[A](self : Parser[A]) -> Parser[List[A]] {
   fn parse_zero_or_more(input) -> (List[A], Tokens) {
     match (self.parse)(input) {
@@ -224,7 +302,7 @@ fn fold_left[A, B](l : List[A], f : (B, A) -> B, b : B) -> B {
 }
 
 pub let pint : Parser[Int] = pchar('-').optional().and_then(
-  pdigit.one_or_many(),
+  pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(pdigit.one_or_many()),
 ).map(
   fn(tuple) {
     let sign = tuple.0
