@@ -1,6 +1,6 @@
 {
   "name": "peter-jerry-ye/parser-combinator",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "deps": {
     "peter-jerry-ye/assertion": "0.2.1"
   },

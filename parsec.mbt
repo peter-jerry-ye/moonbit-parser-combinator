@@ -315,6 +315,20 @@ pub let pint : Parser[Int] = pchar('-').optional().and_then(
   },
 )
 
+pub let pint64 : Parser[Int64] = pchar('-').optional().and_then(
+  pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(pdigit.one_or_many()),
+).map(
+  fn(tuple) {
+    let sign = tuple.0
+    let digits = tuple.1
+    let i = fold_left(digits.1, fn(a, b) { 10L * a + b.to_int64() }, digits.0.to_int64())
+    match sign {
+      Some(_) => -i
+      None => i
+    }
+  },
+)
+
 pub fn Parser::omit_first[A, B](parser : Parser[(A, B)]) -> Parser[B] {
   parser.map(fn(pair) { pair.1 })
 }
