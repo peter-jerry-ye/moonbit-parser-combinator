@@ -321,7 +321,11 @@ pub let pint64 : Parser[Int64] = pchar('-').optional().and_then(
   fn(tuple) {
     let sign = tuple.0
     let digits = tuple.1
-    let i = fold_left(digits.1, fn(a, b) { 10L * a + b.to_int64() }, digits.0.to_int64())
+    let i = fold_left(
+      digits.1,
+      fn(a, b) { 10L * a + b.to_int64() },
+      digits.0.to_int64(),
+    )
     match sign {
       Some(_) => -i
       None => i
@@ -352,4 +356,8 @@ pub fn Parser::separated_by[A, B](self : Parser[A], separator : Parser[B]) ->
   self.separated_by1(separator).map(fn(pair) { List::Cons(pair.0, pair.1) }).or_else(
     pconst(Nil),
   )
+}
+
+pub fn Parser::ref[A](self : Ref[Parser[A]]) -> Parser[A] {
+  { parse: fn(str) { (self.val.parse)(str) } }
 }
