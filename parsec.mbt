@@ -11,6 +11,10 @@ pub fn Parser::parse[Token, Value](self : Parser[Token, Value],
   (self.0)(sequence)
 }
 
+/// Parses a token with predicate
+///
+/// The predicate should return `Some(value)` if the tokens fulfills
+/// or `None` otherwise
 pub fn pvalue[Token, Value](predicate : (Token) -> Option[Value]) ->
      Parser[Token, Value] {
   Parser(fn(seq) {
@@ -20,10 +24,12 @@ pub fn pvalue[Token, Value](predicate : (Token) -> Option[Value]) ->
   })
 }
 
+/// Parser that always fail
 pub fn pfail[Token, A]() -> Parser[Token, A] {
   Parser(fn(_tokens) { None })
 }
 
+/// Parser that always succeed with given value
 pub fn pconst[Token, A](a : A) -> Parser[Token, A] {
   Parser(fn(tokens) { Some(a, tokens) })
 }
@@ -84,69 +90,138 @@ pub fn Parser::apply[Token, A, B](self : Parser[Token, A],
 
 pub fn Parser::repeat_n[Token, A](self : Parser[Token, A], n : Int) ->
      Parser[Token, Array[A]] {
-  if n <= 0 {
-    pfail()
-  } else {
-    sequence(repeat(self, n)).map(fn(l) { list_to_array(l, n) })
-  }
+  self.repeat_n_with_sep(n, pconst(()))
 }
 
 pub fn Parser::repeat_n_with_sep[Token, A, B](self : Parser[Token, A], n : Int,
         sep : Parser[Token, B]) -> Parser[Token, Array[A]] {
-  if n <= 0 {
+  if n < 0 {
     pfail()
+  } else if n == 0 {
+    pconst(Array::default())
   } else if n == 1 {
     self.map(fn(v) { Array::make(1, v) })
   } else {
-    sequence(
-      Cons(self, repeat(sep.optional().and_then(self).omit_first(), n - 1)),
-    ).map(fn(l) { list_to_array(l, n) })
+    Parser(fn(seq) {
+      let (hd, tl) = self.parse(seq)?
+      let array = Array::make(n, hd)
+      let parser = sep.and_then(self).omit_first()
+      let mut i = 0
+      let mut rest = tl
+      while i < n - 1, i = i + 1 {
+        let (hd, tl) = parser.parse(rest)?
+        array[i + 1] = hd
+        rest = tl
+      }
+      Some(array, rest)
+    })
   }
 }
 
 pub fn Parser::repeat_0_to_n[Token, A](self : Parser[Token, A], n : Int) ->
      Parser[Token, List[A]] {
-  Parser(fn(str) {
-    let mut tokens = str
-    let mut list : List[A] = Nil
-    let mut i = 0
-    while i < n, i = i + 1 {
-      match self.parse(tokens) {
-        Some(v, rest) => {
-          tokens = rest
-          list = Cons(v, list)
-        }
-        None => break
-      }
-    }
-    Some(list, tokens)
-  })
+  self.repeat_0_to_n_with_sep(n, pconst(()))
 }
 
 pub fn Parser::repeat_0_to_n_with_sep[Token, A, B](self : Parser[Token, A],
-        n : Int, sep : Parser[Token, B]) -> Parser[Token, List[A]] {
-  self.and_then(sep.optional().and_then(self).omit_first().repeat_0_to_n(n - 1)).map(
-    fn(p) { List::Cons(p.0, p.1) },
-  ).or_else(pconst(Nil))
+        n : Int, separator : Parser[Token, B]) -> Parser[Token, List[A]] {
+  if n < 0 {
+    pfail()
+  } else if n == 0 {
+    pconst(Nil)
+  } else {
+    Parser(fn(seq) {
+      let sep_self = separator.and_then(self).omit_first()
+      match self.parse(seq) {
+        None => return Some(Nil, seq)
+        Some(hd, tl) => {
+          let mut result = List::Cons(hd, Nil)
+          let mut input = tl
+          let mut i = 0
+          while i < n - 1, i = i + 1 {
+            match sep_self.parse(input) {
+              None => break
+              Some(hd, tl) => {
+                result = Cons(hd, result)
+                input = tl
+              }
+            }
+          }
+          Some(reverse(result), input)
+        }
+      }
+    })
+  }
 }
 
-pub fn Parser::many[Token, A](self : Parser[Token, A]) -> Parser[Token, List[A]] {
-  fn parse_zero_or_more(input) -> (List[A], Seq[Token]) {
-    match self.parse(input) {
-      None => (Nil, input)
-      Some(a, rest) => {
-        let (ls, remain) = parse_zero_or_more(rest)
-        (Cons(a, ls), remain)
+pub fn Parser::repeat[Token, A](self : Parser[Token, A]) ->
+     Parser[Token, List[A]] {
+  self.repeat_with_sep(pconst(()))
+}
+
+pub fn Parser::repeat_with_sep[Token, A, B](self : Parser[Token, A],
+        separator : Parser[Token, B]) -> Parser[Token, List[A]] {
+  Parser(fn(seq) {
+    let sep_self = separator.and_then(self).omit_first()
+    match self.parse(seq) {
+      None => return Some(Nil, seq)
+      Some(hd, tl) => {
+        let mut result = List::Cons(hd, Nil)
+        let mut input = tl
+        while true {
+          match sep_self.parse(input) {
+            None => break
+            Some(hd, tl) => {
+              result = Cons(hd, result)
+              input = tl
+            }
+          }
+        }
+        Some(reverse(result), input)
       }
     }
-  }
-
-  Parser(fn(str) { Some(parse_zero_or_more(str)) })
+  })
 }
 
-pub fn Parser::one_or_many[Token, A](self : Parser[Token, A]) ->
-     Parser[Token, (A, List[A])] {
-  self.and_then(self.many())
+test "repeat" {
+  let parser = pvalue(fn{ 
+    '0' => Some(0) 
+    '1' => Some(1)
+    _ => None 
+  })
+  let repeat_n = parser.repeat_n(3)
+  match repeat_n.parse(Seq::from_string("0110")) {
+    None => abort("repeat '0|1' 3 times with '0110' should succeed\n")
+    Some(result, _) => if result.length() != 3 || result[0] != 0 || result[1] != 1 || result[2] != 1 {
+      abort("repeat '0|1' 3 times with '0110' should give 011\n")
+    }
+  }
+  let repeat_0_to_n = parser.repeat_0_to_n(3)
+  match repeat_0_to_n.parse(Seq::from_string("0110")) {
+    None => abort("repeat '0|1' at most 3 times with '0110' should succeed\n")
+    Some(result, _) => if result != Cons(0, Cons(1, Cons(1, Nil))) {
+      abort("repeat '0|1' at most 3 times with '0110' should give 011\n")
+    }
+  }
+  match repeat_0_to_n.parse(Seq::from_string("01210")) {
+    None => abort("repeat '0|1' at most 3 times with '01210' should succeed\n")
+    Some(result, _) => if result != Cons(0, Cons(1, Nil)) {
+      abort("repeat '0|1' at most 3 times with '01210' should give 01\n")
+    }
+  }
+  match repeat_0_to_n.parse(Seq::from_string("2")) {
+    None => abort("repeat '0|1' at most 3 times with '2' should succeed\n")
+    Some(result, _) => if result != Nil {
+      abort("repeat '0|1' at most 3 times with '2' should give Nil\n")
+    }
+  }
+  let repeat = parser.repeat()
+  match repeat.parse(Seq::from_string("0110")) {
+    None => abort("repeat '0|1' any times with '0110' should succeed\n")
+    Some(result, _) => if result != Cons(0, Cons(1, Cons(1, Cons(0, Nil)))) {
+      abort("repeat '0|1' any times with '0110' should give 0110\n")
+    }
+  }
 }
 
 pub fn Parser::optional[Token, A](self : Parser[Token, A]) ->
@@ -166,20 +241,7 @@ pub fn Parser::omit_second[Token, A, B](parser : Parser[Token, (A, B)]) ->
 
 pub fn Parser::between[Token, A, B](self : Parser[Token, A],
         around : Parser[Token, B]) -> Parser[Token, A] {
-  omit_second(omit_first(around.and_then(self)).and_then(around))
-}
-
-pub fn Parser::separated_by1[Token, A, B](self : Parser[Token, A],
-        separator : Parser[Token, B]) -> Parser[Token, (A, List[A])] {
-  let sep_then = omit_first(separator.and_then(self))
-  self.and_then(sep_then.many())
-}
-
-pub fn Parser::separated_by[Token, A, B](self : Parser[Token, A],
-        separator : Parser[Token, B]) -> Parser[Token, List[A]] {
-  self.separated_by1(separator).map(fn(pair) { List::Cons(pair.0, pair.1) }).or_else(
-    pconst(Nil),
-  )
+  around.and_then(self).omit_first().and_then(around).omit_second()
 }
 
 pub fn Parser::ref[Token, A](self : Ref[Parser[Token, A]]) -> Parser[Token, A] {
@@ -188,13 +250,15 @@ pub fn Parser::ref[Token, A](self : Ref[Parser[Token, A]]) -> Parser[Token, A] {
 
 // helper functions. TODO: replace with std
 
-fn repeat[A](a : A, n : Int) -> List[A] {
-  let mut list : List[A] = Nil
-  let mut i = 0
-  while i < n, i = i + 1 {
-    list = Cons(a, list)
+fn reverse[X](list : List[X]) -> List[X] {
+  fn go(acc, xs : List[X]) {
+    match xs {
+      Nil => acc
+      Cons(x, rest) => go((Cons(x, acc) : List[X]), rest)
+    }
   }
-  list
+
+  go(Nil, list)
 }
 
 fn when[T](predicate : Bool, value : T) -> Option[T] {
@@ -202,27 +266,6 @@ fn when[T](predicate : Bool, value : T) -> Option[T] {
     Some(value)
   } else {
     None
-  }
-}
-
-fn list_to_array[A](list : List[A], length : Int) -> Array[A] {
-  match list {
-    Cons(hd, _) => {
-      let array = Array::make(length, hd)
-      let mut l = list
-      let mut i = 0
-      while i < length, i = i + 1 {
-        match l {
-          Nil => break
-          Cons(hd, tl) => {
-            array[i] = hd
-            l = tl
-          }
-        }
-      }
-      array
-    }
-    Nil => Array::default()
   }
 }
 
@@ -265,12 +308,22 @@ pub fn one_of[A : Show](array : Array[A]) -> Parser[Char, A] {
   )
 }
 
+let pdigits : Parser[Char, (Option[Char], (Int, List[Int]))] = pchar('-').optional().and_then(
+  pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(
+    pvalue(
+      fn{
+        '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' as char =>
+          Some(char.to_int() - 0x30)
+        _ => None
+      },
+    ).and_then(pdigit.repeat()),
+  ),
+)
+
 /// parser for integer
 ///
 /// [ "-" ] ( %x30 / (%x31-39) *(%x30-39)
-pub let pint : Parser[Char, Int] = pchar('-').optional().and_then(
-  pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(pdigit.one_or_many()),
-).map(
+pub let pint : Parser[Char, Int] = pdigits.map(
   fn(tuple) {
     let sign = tuple.0
     let digits = tuple.1
@@ -285,23 +338,40 @@ pub let pint : Parser[Char, Int] = pchar('-').optional().and_then(
 /// parser for integer 64 bits
 ///
 /// [ "-" ] ( %x30 / (%x31-39) *(%x30-39)
-pub let pint64 : Parser[Char, Int64] = pchar('-').optional().and_then(
-  pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(pdigit.one_or_many()),
-).map(
+pub let pint64 : Parser[Char, Int64] = pdigits.map(
   fn(tuple) {
     let sign = tuple.0
     let digits = tuple.1
-    let i = fold_left(
-      digits.1,
-      fn(a, b) { 10L * a + b.to_int64() },
-      digits.0.to_int64(),
-    )
+    let i = fold_left( digits.1, fn(a, b) { 10L * a + b.to_int64() }, digits.0.to_int64())
     match sign {
       Some(_) => -i
       None => i
     }
   },
 )
+
+test "pint" {
+  match pint.parse(Seq::from_string("12345")) {
+    Some(12345, _) => ()
+    _ => abort("match int with '12345' should return 12345")
+  }
+  match pint.parse(Seq::from_string("-0")) {
+    Some(0, _) => ()
+    _ => abort("match int with '-0' should return 0")
+  }
+  match pint.parse(Seq::from_string("0")) {
+    Some(0, _) => ()
+    _ => abort("match int with '0' should return 0")
+  }
+  match pint.parse(Seq::from_string("-01")) {
+    Some(0, _) => ()
+    _ => abort("match int with '-01' should return 0")
+  }
+  match pint.parse(Seq::from_string("-100")) {
+    Some(-100, _) => ()
+    _ => abort("match int with '-100' should return -100")
+  }
+}
 
 /// parser that tries to match the given string
 pub fn pstring(string : String) -> Parser[Char, String] {
@@ -310,7 +380,7 @@ pub fn pstring(string : String) -> Parser[Char, String] {
     let mut iter = seq
     while input.is_empty().not() {
       let (target, rest_target) = input.uncons()?
-      let (char, rest) = seq.uncons()?
+      let (char, rest) = iter.uncons()?
       if target != char {
         return None
       }
@@ -319,4 +389,16 @@ pub fn pstring(string : String) -> Parser[Char, String] {
     }
     Some(string, iter)
   })
+}
+
+test "pstring" {
+  let parser = pstring("asdf")
+  match parser.parse(Seq::from_string("asdfjkl;")) {
+    None => abort("match 'asdf' with 'asdfjkl;' should succeed\n")
+    _ => ()
+  }
+  match parser.parse(Seq::from_string("jkl;")) {
+    Some(_) => abort("match 'asdf' with 'jkl;' should fail\n")
+    _ => ()
+  }
 }
