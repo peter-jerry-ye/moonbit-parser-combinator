@@ -1,67 +1,62 @@
-priv struct Tokens {
-  bytes : Bytes
-  offset : Int
-}
+/// A possibily infinate lazy list
+pub type Seq[T] () -> Option[(T, Seq[T])] derive(Debug)
 
-pub struct Parser[T] {
-  priv parse : (Tokens) -> Option[(T, Tokens)]
-}
-
-pub fn Parser::parse[T](self : Parser[T], bytes : Bytes) -> Option[(T, Bytes)] {
-  match (self.parse)({ bytes, offset: 0 }) {
-    Some(t, tokens) =>
-      Some(
-        t,
-        tokens.bytes.sub_string(
-          tokens.offset,
-          tokens.bytes.length() - tokens.offset,
-        ).to_bytes(),
-      )
-    None => None
+/// Checks if the sequence is empty
+pub fn Seq::is_empty[T](seq : Seq[T]) -> Bool {
+  match (seq.0)() {
+    None => true
+    Some(_) => false
   }
 }
 
-pub fn pstring(string : String) -> Parser[String] {
-  {
-    parse: fn(str : Tokens) {
-      let bytes = string.to_bytes()
-      if str.bytes.length() - str.offset < bytes.length() {
-        None
-      } else {
-        let mut i = 0
-        let mut has_result = true
-        let length = bytes.length()
-        while i < length, i = i + 1 {
-          if bytes[i] != str.bytes[str.offset + i] {
-            has_result = false
-            break
-          }
-        }
-        if has_result {
-          Some(string, {..str, offset: str.offset + length })
-        } else {
-          None
-        }
-      }
-    },
-  }
+/// Unwrap a sequence
+///
+/// If `seq` is empty, then `seq.uncons()` is `None`  
+/// Else is `Some(hd, tl)` where `hd` is the head of the sequence
+/// and `tl` is the tail
+pub fn Seq::uncons[T](seq : Seq[T]) -> Option[(T, Seq[T])] {
+  (seq.0)()
 }
 
-pub fn pchar_such_that(predicate : (Char) -> Bool) -> Parser[Char] {
-  {
-    parse: fn(str : Tokens) {
-      let { offset, bytes } = str
+/// Map the sequence
+///
+/// If the sequence is x0, x1, ... then `seq.map(f)` is f(x0), f(x1), ...
+pub fn Seq::map[T1, T2](seq : Seq[T1], f : (T1) -> T2) -> Seq[T2] {
+  Seq(fn() {
+    let (hd, tl) = seq.uncons()?
+    Some(f(hd), tl.map(f))
+  })
+}
+
+/// Construct a sequence from list
+pub fn Seq::from_list[T](list : List[T]) -> Seq[T] {
+  Seq(fn() {
+    match list {
+      Nil => None
+      Cons(hd, tl) => Some(hd, Seq::from_list(tl))
+    }
+  })
+}
+
+/// Construct a sequence from string
+///
+/// Contents are copied, so no modification to the original string
+/// will affect the sequence.  
+pub fn Seq::from_string(str : String) -> Seq[Char] {
+  let bytes = str.to_bytes()
+  fn aux(offset : Int) -> Seq[Char] {
+    Seq(fn() -> Option[(Char, Seq[Char])] {
       let length = bytes.length()
       if offset < length {
         let code = bytes[offset]
-        let (char, tokens) = (
+        let (char, new_offset) = (
           if code < 0b1100_0000 {
-            Some(Char::from_int(code), {..str, offset: offset + 1 })
+            Some(Char::from_int(code), offset + 1)
           } else if code < 0b1110_0000 && offset + 1 < length {
             let code2 = bytes[offset + 1]
             Some(
               Char::from_int(code.land(0x1F).lsl(6).lor(code2.land(0x3F))),
-              {..str, offset: offset + 2 },
+              offset + 2,
             )
           } else if code < 0b1111_0000 && offset + 2 < length {
             let code2 = bytes[offset + 1]
@@ -72,7 +67,7 @@ pub fn pchar_such_that(predicate : (Char) -> Bool) -> Parser[Char] {
                   code3.land(0x3F),
                 ),
               ),
-              {..str, offset: offset + 3 },
+              offset + 3,
             )
           } else if code < 0b1111_1000 && offset + 3 < length {
             let code2 = bytes[offset + 1]
@@ -84,115 +79,210 @@ pub fn pchar_such_that(predicate : (Char) -> Bool) -> Parser[Char] {
                   code3.land(0x3F).lsl(6),
                 ).lor(code4.land(0x3F)),
               ),
-              {..str, offset: offset + 4 },
+              offset + 4,
             )
           } else {
             None
-          } : Option[(Char, Tokens)])?
-        if predicate(char) {
-          Some(char, tokens)
-        } else {
-          None
-        }
+          } : Option[(Char, Int)])?
+        Some(char, aux(new_offset))
       } else {
         None
       }
-    },
+    })
   }
+
+  aux(0)
 }
 
-pub fn pchar(char : Char) -> Parser[Char] {
-  pchar_such_that(fn(c) { c == char })
+/// A parser combinator
+pub type Parser[Token, Value] (Seq[Token]) -> Option[(Value, Seq[Token])]
+
+/// Parses a sequence of tokens
+///
+/// If the parsing succeeds, `Some(result, rest)` is returned  
+/// Otherwise, `None` is returned.
+/// TODO: Move to `Result[A, B]`
+pub fn Parser::parse[Token, Value](self : Parser[Token, Value],
+        sequence : Seq[Token]) -> Option[(Value, Seq[Token])] {
+  (self.0)(sequence)
 }
 
-pub fn Parser::and_then[A, B](self : Parser[A], other : Parser[B]) ->
-     Parser[(A, B)] {
-  {
-    parse: fn(str : Tokens) -> Option[((A, B), Tokens)] {
-      match (self.parse)(str) {
-        Some(a, tokens) =>
-          match (other.parse)(tokens) {
-            Some(b, rest) => Some((a, b), rest)
-            None => None
-          }
-        None => None
-      }
-    },
-  }
+pub fn pvalue[Token, Value](predicate : (Token) -> Option[Value]) ->
+     Parser[Token, Value] {
+  Parser(fn(seq) {
+    let (hd, rest) = seq.uncons()?
+    let value = predicate(hd)?
+    Some(value, rest)
+  })
 }
 
-pub fn Parser::or_else[A](self : Parser[A], other : Parser[A]) -> Parser[A] {
-  {
-    parse: fn(str : Tokens) -> Option[(A, Tokens)] {
-      match (self.parse)(str) {
-        Some(a, tokens) => Some(a, tokens)
-        None => (other.parse)(str)
-      }
-    },
-  }
+pub fn pfail[Token, A]() -> Parser[Token, A] {
+  Parser(fn(_tokens) { None })
 }
 
-pub fn Parser::or_others[A](self : Parser[A], others : List[Parser[A]]) ->
-     Parser[A] {
-  match others {
-    Nil => self
-    Cons(hd, tl) => self.or_else(hd.or_others(tl))
-  }
+pub fn pconst[Token, A](a : A) -> Parser[Token, A] {
+  Parser(fn(tokens) { Some(a, tokens) })
 }
 
-pub fn Parser::map[A, B](self : Parser[A], f : (A) -> B) -> Parser[B] {
-  {
-    parse: fn(str : Tokens) -> Option[(B, Tokens)] {
-      match (self.parse)(str) {
-        Some(a, tokens) => Some(f(a), tokens)
-        None => None
-      }
-    },
-  }
-}
-
-fn fold_right[A, B](array : Array[A], f : (A, B) -> B, b : B) -> B {
-  let mut i = array.length() - 1
-  let mut result = b
-  while i >= 0, i = i - 1 {
-    result = f(array[i], result)
-  }
-  result
-}
-
-pub fn one_of[A : Show](array : Array[A]) -> Parser[A] {
-  fold_right(
-    array,
-    fn(i, p) { pstring(i.to_string()).map(fn(_str) { i }).or_else(p) },
-    pfail(),
-  )
-}
-
-pub let pdigit : Parser[Int] = one_of([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
-
-pub fn pfail[A]() -> Parser[A] {
-  { parse: fn(_tokens) { None } }
-}
-
-pub fn pconst[A](a : A) -> Parser[A] {
-  { parse: fn(tokens) { Some(a, tokens) } }
-}
-
-pub fn Parser::apply[A, B](self : Parser[A], f : Parser[(A) -> B]) -> Parser[B] {
-  self.and_then(f).map(fn(pair) { (pair.1)(pair.0) })
-}
-
-pub fn lift2[A, B, C](f : (A, B) -> C) -> (Parser[A], Parser[B]) -> Parser[C] {
+pub fn lift2[Token, A, B, C](f : (A, B) -> C) ->
+     (Parser[Token, A], Parser[Token, B]) -> Parser[Token, C] {
   fn(pa, pb) { pa.apply(pb.apply(pconst(fn(b) { fn(a) { f(a, b) } }))) }
 }
 
-pub fn sequence[A](parser_list : List[Parser[A]]) -> Parser[List[A]] {
+pub fn sequence[Token, A](parser_list : List[Parser[Token, A]]) ->
+     Parser[Token, List[A]] {
   let consP = lift2(fn(hd, tl) { List::Cons(hd, tl) })
   match parser_list {
     Nil => pconst(Nil)
     Cons(hd, tl) => consP(hd, sequence(tl))
   }
 }
+
+pub fn Parser::and_then[Token, A, B](self : Parser[Token, A],
+        other : Parser[Token, B]) -> Parser[Token, (A, B)] {
+  Parser(fn(tokens) {
+    let (a, rest) = self.parse(tokens)?
+    let (b, rest2) = other.parse(rest)?
+    Some((a, b), rest2)
+  })
+}
+
+pub fn Parser::or_else[Token, A](self : Parser[Token, A],
+        other : Parser[Token, A]) -> Parser[Token, A] {
+  Parser(fn(tokens) {
+    match self.parse(tokens) {
+      None => other.parse(tokens)
+      Some(_) as result => result
+    }
+  })
+}
+
+pub fn Parser::or_others[Token, A](self : Parser[Token, A],
+        others : List[Parser[Token, A]]) -> Parser[Token, A] {
+  match others {
+    Nil => self
+    Cons(hd, tl) => self.or_else(hd.or_others(tl))
+  }
+}
+
+pub fn Parser::map[Token, A, B](self : Parser[Token, A], f : (A) -> B) ->
+     Parser[Token, B] {
+  Parser(fn(tokens) {
+    let (a, rest) = self.parse(tokens)?
+    Some(f(a), rest)
+  })
+}
+
+pub fn Parser::apply[Token, A, B](self : Parser[Token, A],
+        f : Parser[Token, (A) -> B]) -> Parser[Token, B] {
+  self.and_then(f).map(fn(pair) { (pair.1)(pair.0) })
+}
+
+pub fn Parser::repeat_n[Token, A](self : Parser[Token, A], n : Int) ->
+     Parser[Token, Array[A]] {
+  if n <= 0 {
+    pfail()
+  } else {
+    sequence(repeat(self, n)).map(fn(l) { list_to_array(l, n) })
+  }
+}
+
+pub fn Parser::repeat_n_with_sep[Token, A, B](self : Parser[Token, A], n : Int,
+        sep : Parser[Token, B]) -> Parser[Token, Array[A]] {
+  if n <= 0 {
+    pfail()
+  } else if n == 1 {
+    self.map(fn(v) { Array::make(1, v) })
+  } else {
+    sequence(
+      Cons(self, repeat(sep.optional().and_then(self).omit_first(), n - 1)),
+    ).map(fn(l) { list_to_array(l, n) })
+  }
+}
+
+pub fn Parser::repeat_0_to_n[Token, A](self : Parser[Token, A], n : Int) ->
+     Parser[Token, List[A]] {
+  Parser(fn(str) {
+    let mut tokens = str
+    let mut list : List[A] = Nil
+    let mut i = 0
+    while i < n, i = i + 1 {
+      match self.parse(tokens) {
+        Some(v, rest) => {
+          tokens = rest
+          list = Cons(v, list)
+        }
+        None => break
+      }
+    }
+    Some(list, tokens)
+  })
+}
+
+pub fn Parser::repeat_0_to_n_with_sep[Token, A, B](self : Parser[Token, A],
+        n : Int, sep : Parser[Token, B]) -> Parser[Token, List[A]] {
+  self.and_then(sep.optional().and_then(self).omit_first().repeat_0_to_n(n - 1)).map(
+    fn(p) { List::Cons(p.0, p.1) },
+  ).or_else(pconst(Nil))
+}
+
+pub fn Parser::many[Token, A](self : Parser[Token, A]) -> Parser[Token, List[A]] {
+  fn parse_zero_or_more(input) -> (List[A], Seq[Token]) {
+    match self.parse(input) {
+      None => (Nil, input)
+      Some(a, rest) => {
+        let (ls, remain) = parse_zero_or_more(rest)
+        (Cons(a, ls), remain)
+      }
+    }
+  }
+
+  Parser(fn(str) { Some(parse_zero_or_more(str)) })
+}
+
+pub fn Parser::one_or_many[Token, A](self : Parser[Token, A]) ->
+     Parser[Token, (A, List[A])] {
+  self.and_then(self.many())
+}
+
+pub fn Parser::optional[Token, A](self : Parser[Token, A]) ->
+     Parser[Token, Option[A]] {
+  self.map(Option::Some).or_else(pconst(None))
+}
+
+pub fn Parser::omit_first[Token, A, B](parser : Parser[Token, (A, B)]) ->
+     Parser[Token, B] {
+  parser.map(fn(pair) { pair.1 })
+}
+
+pub fn Parser::omit_second[Token, A, B](parser : Parser[Token, (A, B)]) ->
+     Parser[Token, A] {
+  parser.map(fn(pair) { pair.0 })
+}
+
+pub fn Parser::between[Token, A, B](self : Parser[Token, A],
+        around : Parser[Token, B]) -> Parser[Token, A] {
+  omit_second(omit_first(around.and_then(self)).and_then(around))
+}
+
+pub fn Parser::separated_by1[Token, A, B](self : Parser[Token, A],
+        separator : Parser[Token, B]) -> Parser[Token, (A, List[A])] {
+  let sep_then = omit_first(separator.and_then(self))
+  self.and_then(sep_then.many())
+}
+
+pub fn Parser::separated_by[Token, A, B](self : Parser[Token, A],
+        separator : Parser[Token, B]) -> Parser[Token, List[A]] {
+  self.separated_by1(separator).map(fn(pair) { List::Cons(pair.0, pair.1) }).or_else(
+    pconst(Nil),
+  )
+}
+
+pub fn Parser::ref[Token, A](self : Ref[Parser[Token, A]]) -> Parser[Token, A] {
+  Parser(fn(str) { self.val.parse(str) })
+}
+
+// helper functions. TODO: replace with std
 
 fn repeat[A](a : A, n : Int) -> List[A] {
   let mut list : List[A] = Nil
@@ -201,6 +291,14 @@ fn repeat[A](a : A, n : Int) -> List[A] {
     list = Cons(a, list)
   }
   list
+}
+
+fn when[T](predicate : Bool, value : T) -> Option[T] {
+  if predicate {
+    Some(value)
+  } else {
+    None
+  }
 }
 
 fn list_to_array[A](list : List[A], length : Int) -> Array[A] {
@@ -224,76 +322,6 @@ fn list_to_array[A](list : List[A], length : Int) -> Array[A] {
   }
 }
 
-pub fn Parser::repeat_n[A](self : Parser[A], n : Int) -> Parser[Array[A]] {
-  if n <= 0 {
-    pfail()
-  } else {
-    sequence(repeat(self, n)).map(fn(l) { list_to_array(l, n) })
-  }
-}
-
-pub fn Parser::repeat_n_with_sep[A, B](self : Parser[A], n : Int,
-        sep : Parser[B]) -> Parser[Array[A]] {
-  if n <= 0 {
-    pfail()
-  } else if n == 1 {
-    self.map(fn(v) { Array::make(1, v) })
-  } else {
-    sequence(
-      Cons(self, repeat(sep.optional().and_then(self).omit_first(), n - 1)),
-    ).map(fn(l) { list_to_array(l, n) })
-  }
-}
-
-pub fn Parser::repeat_0_to_n[A](self : Parser[A], n : Int) -> Parser[List[A]] {
-  {
-    parse: fn(str) {
-      let mut tokens = str
-      let mut list : List[A] = Nil
-      let mut i = 0
-      while i < n, i = i + 1 {
-        match (self.parse)(tokens) {
-          Some(v, rest) => {
-            tokens = rest
-            list = Cons(v, list)
-          }
-          None => break
-        }
-      }
-      Some(list, tokens)
-    },
-  }
-}
-
-pub fn Parser::repeat_0_to_n_with_sep[A, B](self : Parser[A], n : Int,
-        sep : Parser[B]) -> Parser[List[A]] {
-  self.and_then(sep.optional().and_then(self).omit_first().repeat_0_to_n(n - 1)).map(
-    fn(p) { List::Cons(p.0, p.1) },
-  ).or_else(pconst(Nil))
-}
-
-pub fn Parser::many[A](self : Parser[A]) -> Parser[List[A]] {
-  fn parse_zero_or_more(input) -> (List[A], Tokens) {
-    match (self.parse)(input) {
-      None => (Nil, input)
-      Some(a, rest) => {
-        let (ls, remain) = parse_zero_or_more(rest)
-        (Cons(a, ls), remain)
-      }
-    }
-  }
-
-  { parse: fn(str) { Some(parse_zero_or_more(str)) } }
-}
-
-pub fn Parser::one_or_many[A](self : Parser[A]) -> Parser[(A, List[A])] {
-  self.and_then(self.many())
-}
-
-pub fn Parser::optional[A](self : Parser[A]) -> Parser[Option[A]] {
-  self.map(Option::Some).or_else(pconst(None))
-}
-
 fn fold_left[A, B](l : List[A], f : (B, A) -> B, b : B) -> B {
   match l {
     Nil => b
@@ -301,7 +329,42 @@ fn fold_left[A, B](l : List[A], f : (B, A) -> B, b : B) -> B {
   }
 }
 
-pub let pint : Parser[Int] = pchar('-').optional().and_then(
+fn fold_right[A, B](array : Array[A], f : (A, B) -> B, b : B) -> B {
+  let mut i = array.length() - 1
+  let mut result = b
+  while i >= 0, i = i - 1 {
+    result = f(array[i], result)
+  }
+  result
+}
+
+// String specific parsers
+
+pub fn pchar_such_that(predicate : (Char) -> Bool) -> Parser[Char, Char] {
+  pvalue(fn{ char => when(predicate(char), char) })
+}
+
+pub fn pchar(char : Char) -> Parser[Char, Char] {
+  pchar_such_that(fn(c) { c == char })
+}
+
+/// parse digit
+///
+/// %x30-39
+pub let pdigit : Parser[Char, Int] = one_of([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+pub fn one_of[A : Show](array : Array[A]) -> Parser[Char, A] {
+  fold_right(
+    array,
+    fn(i, p) { pstring(i.to_string()).map(fn(_str) { i }).or_else(p) },
+    pfail(),
+  )
+}
+
+/// parser for integer
+///
+/// [ "-" ] ( %x30 / (%x31-39) *(%x30-39)
+pub let pint : Parser[Char, Int] = pchar('-').optional().and_then(
   pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(pdigit.one_or_many()),
 ).map(
   fn(tuple) {
@@ -315,7 +378,10 @@ pub let pint : Parser[Int] = pchar('-').optional().and_then(
   },
 )
 
-pub let pint64 : Parser[Int64] = pchar('-').optional().and_then(
+/// parser for integer 64 bits
+///
+/// [ "-" ] ( %x30 / (%x31-39) *(%x30-39)
+pub let pint64 : Parser[Char, Int64] = pchar('-').optional().and_then(
   pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(pdigit.one_or_many()),
 ).map(
   fn(tuple) {
@@ -333,31 +399,20 @@ pub let pint64 : Parser[Int64] = pchar('-').optional().and_then(
   },
 )
 
-pub fn Parser::omit_first[A, B](parser : Parser[(A, B)]) -> Parser[B] {
-  parser.map(fn(pair) { pair.1 })
-}
-
-pub fn Parser::omit_second[A, B](parser : Parser[(A, B)]) -> Parser[A] {
-  parser.map(fn(pair) { pair.0 })
-}
-
-pub fn Parser::between[A, B](self : Parser[A], around : Parser[B]) -> Parser[A] {
-  omit_second(omit_first(around.and_then(self)).and_then(around))
-}
-
-pub fn Parser::separated_by1[A, B](self : Parser[A], separator : Parser[B]) ->
-     Parser[(A, List[A])] {
-  let sep_then = omit_first(separator.and_then(self))
-  self.and_then(sep_then.many())
-}
-
-pub fn Parser::separated_by[A, B](self : Parser[A], separator : Parser[B]) ->
-     Parser[List[A]] {
-  self.separated_by1(separator).map(fn(pair) { List::Cons(pair.0, pair.1) }).or_else(
-    pconst(Nil),
-  )
-}
-
-pub fn Parser::ref[A](self : Ref[Parser[A]]) -> Parser[A] {
-  { parse: fn(str) { (self.val.parse)(str) } }
+/// parser that tries to match the given string
+pub fn pstring(string : String) -> Parser[Char, String] {
+  Parser(fn(seq) {
+    let mut input = Seq::from_string(string)
+    let mut iter = seq
+    while input.is_empty().not() {
+      let (target, rest_target) = input.uncons()?
+      let (char, rest) = seq.uncons()?
+      if target != char {
+        return None
+      }
+      input = rest_target
+      iter = rest
+    }
+    Some(string, iter)
+  })
 }
