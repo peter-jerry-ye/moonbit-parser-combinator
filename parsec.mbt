@@ -106,9 +106,8 @@ pub fn Parser::repeat_n_with_sep[Token, A, B](self : Parser[Token, A], n : Int,
       let (hd, tl) = self.parse(seq)?
       let array = Array::make(n, hd)
       let parser = sep.and_then(self).omit_first()
-      let mut i = 0
       let mut rest = tl
-      while i < n - 1, i = i + 1 {
+      for i = 0; i < n - 1; i = i + 1 {
         let (hd, tl) = parser.parse(rest)?
         array[i + 1] = hd
         rest = tl
@@ -137,8 +136,7 @@ pub fn Parser::repeat_0_to_n_with_sep[Token, A, B](self : Parser[Token, A],
         Some(hd, tl) => {
           let mut result = List::Cons(hd, Nil)
           let mut input = tl
-          let mut i = 0
-          while i < n - 1, i = i + 1 {
+          for i = 0; i < n - 1; i = i + 1 {
             match sep_self.parse(input) {
               None => break
               Some(hd, tl) => {
@@ -166,14 +164,14 @@ pub fn Parser::repeat_with_sep[Token, A, B](self : Parser[Token, A],
     match self.parse(seq) {
       None => return Some(Nil, seq)
       Some(hd, tl) => {
-        let mut result = List::Cons(hd, Nil)
-        let mut input = tl
-        while true {
-          match sep_self.parse(input) {
-            None => break
-            Some(hd, tl) => {
-              result = Cons(hd, result)
-              input = tl
+        let (input, result) = loop tl, List::Cons(hd, Nil) {
+          input, result => {
+            match sep_self.parse(input) {
+              
+              Some(hd, tl) => {
+                continue tl, Cons(hd, result)
+              }
+              None => (input, result)
             }
           }
         }
@@ -277,9 +275,8 @@ fn fold_left[A, B](l : List[A], f : (B, A) -> B, b : B) -> B {
 }
 
 fn fold_right[A, B](array : Array[A], f : (A, B) -> B, b : B) -> B {
-  let mut i = array.length() - 1
   let mut result = b
-  while i >= 0, i = i - 1 {
+  for i = array.length() - 1; i >= 0; i = i - 1 {
     result = f(array[i], result)
   }
   result
@@ -376,16 +373,18 @@ test "pint" {
 /// parser that tries to match the given string
 pub fn pstring(string : String) -> Parser[Char, String] {
   Parser(fn(seq) {
-    let mut input = Seq::from_string(string)
-    let mut iter = seq
-    while input.is_empty().not() {
-      let (target, rest_target) = input.uncons()?
-      let (char, rest) = iter.uncons()?
-      if target != char {
-        return None
+    let iter = loop seq, Seq::from_string(string) {
+      iter, input => {
+        if input.is_empty().not() {
+          let (target, rest_target) = input.uncons()?
+          let (char, rest) = iter.uncons()?
+          if target != char {
+            return None
+          }
+          continue rest, rest_target
+        }
+        break iter
       }
-      input = rest_target
-      iter = rest
     }
     Some(string, iter)
   })
