@@ -228,30 +228,28 @@ test "repeat" {
     },
   )
   let repeat_n = parser.repeat_n(3)
-  match repeat_n.parse(Seq::from_string("0110")) {
-    None => return Err("repeat '0|1' 3 times with '0110' should succeed\n")
-    Some((result, _)) => @assertion.assert_eq(result, [0, 1, 1])?
-  }
+  inspect(
+    repeat_n.parse(Seq::from_string("0110")),
+    content="Some(([0, 1, 1], 0))",
+  )?
   let repeat_0_to_n = parser.repeat_0_to_n(3)
-  match repeat_0_to_n.parse(Seq::from_string("0110")) {
-    None =>
-      return Err("repeat '0|1' at most 3 times with '0110' should succeed\n")
-    Some((result, _)) => @assertion.assert_eq(result, List::[0, 1, 1])?
-  }
-  match repeat_0_to_n.parse(Seq::from_string("01210")) {
-    None =>
-      return Err("repeat '0|1' at most 3 times with '01210' should succeed\n")
-    Some((result, _)) => @assertion.assert_eq(result, List::[0, 1])?
-  }
-  match repeat_0_to_n.parse(Seq::from_string("2")) {
-    None => return Err("repeat '0|1' at most 3 times with '2' should succeed\n")
-    Some((result, _)) => @assertion.assert_eq(result, List::[])?
-  }
+  inspect(
+    repeat_0_to_n.parse(Seq::from_string("0110")),
+    content="Some((List::[0, 1, 1], 0))",
+  )?
+  inspect(
+    repeat_0_to_n.parse(Seq::from_string("01210")),
+    content="Some((List::[0, 1], 210))",
+  )?
+  inspect(
+    repeat_0_to_n.parse(Seq::from_string("2")),
+    content="Some((List::[], 2))",
+  )?
   let repeat = parser.repeat()
-  match repeat.parse(Seq::from_string("0110")) {
-    None => return Err("repeat '0|1' any times with '0110' should succeed\n")
-    Some((result, _)) => @assertion.assert_eq(result, List::[0, 1, 1, 0])?
-  }
+  inspect(
+    repeat.parse(Seq::from_string("0110")),
+    content="Some((List::[0, 1, 1, 0], ))",
+  )?
 }
 
 pub fn Parser::optional[Token, A](
@@ -389,26 +387,11 @@ pub let pint64 : Parser[Char, Int64] = pdigits.map(
 )
 
 test "pint" {
-  match pint.parse(Seq::from_string("12345")) {
-    Some((12345, _)) => ()
-    _ => return Err("match int with '12345' should return 12345")
-  }
-  match pint.parse(Seq::from_string("-0")) {
-    Some((0, _)) => ()
-    _ => return Err("match int with '-0' should return 0")
-  }
-  match pint.parse(Seq::from_string("0")) {
-    Some((0, _)) => ()
-    _ => return Err("match int with '0' should return 0")
-  }
-  match pint.parse(Seq::from_string("-01")) {
-    Some((0, _)) => ()
-    _ => return Err("match int with '-01' should return 0")
-  }
-  match pint.parse(Seq::from_string("-100")) {
-    Some((-100, _)) => ()
-    _ => return Err("match int with '-100' should return -100")
-  }
+  inspect(pint.parse(Seq::from_string("12345")), content="Some((12345, ))")?
+  inspect(pint.parse(Seq::from_string("-0")), content="Some((0, ))")?
+  inspect(pint.parse(Seq::from_string("0")), content="Some((0, ))")?
+  inspect(pint.parse(Seq::from_string("-01")), content="Some((0, 1))")?
+  inspect(pint.parse(Seq::from_string("-100")), content="Some((-100, ))")?
 }
 
 /// parser that tries to match the given string
@@ -435,12 +418,9 @@ pub fn pstring(string : String) -> Parser[Char, String] {
 
 test "pstring" {
   let parser = pstring("asdf")
-  match parser.parse(Seq::from_string("asdfjkl;")) {
-    None => return Err("match 'asdf' with 'asdfjkl;' should succeed\n")
-    _ => ()
-  }
-  match parser.parse(Seq::from_string("jkl;")) {
-    Some(_) => return Err("match 'asdf' with 'jkl;' should fail\n")
-    _ => ()
-  }
+  inspect(
+    parser.parse(Seq::from_string("asdfjkl;")),
+    content="Some((asdf, jkl;))",
+  )?
+  inspect(parser.parse(Seq::from_string("jkl;")), content="None")?
 }

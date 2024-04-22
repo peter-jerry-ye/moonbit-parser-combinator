@@ -51,57 +51,26 @@ pub fn Seq::from_list[T](list : List[T]) -> Seq[T] {
 /// Contents are copied, so no modification to the original string
 /// will affect the sequence.  
 pub fn Seq::from_string(str : String) -> Seq[Char] {
-  let bytes = str.to_bytes()
   fn aux(offset : Int) -> Seq[Char] {
     Seq(
       fn() -> Option[(Char, Seq[Char])] {
-        let length = bytes.length()
-        if offset < length {
-          let code = bytes[offset]
-          let (char, new_offset) = (
-            if code < 0b1100_0000 {
-              Some((Char::from_int(code), offset + 1))
-            } else if code < 0b1110_0000 && offset + 1 < length {
-              let code2 = bytes[offset + 1]
-              Some(
-                (
-                  Char::from_int(code.land(0x1F).lsl(6).lor(code2.land(0x3F))),
-                  offset + 2,
-                ),
-              )
-            } else if code < 0b1111_0000 && offset + 2 < length {
-              let code2 = bytes[offset + 1]
-              let code3 = bytes[offset + 2]
-              Some(
-                (
-                  Char::from_int(
-                    code.land(0xF).lsl(12).lor(code2.land(0x3F).lsl(6)).lor(
-                      code3.land(0x3F),
-                    ),
-                  ),
-                  offset + 3,
-                ),
-              )
-            } else if code < 0b1111_1000 && offset + 3 < length {
-              let code2 = bytes[offset + 1]
-              let code3 = bytes[offset + 2]
-              let code4 = bytes[offset + 3]
-              Some(
-                (
-                  Char::from_int(
-                    code.land(0x7).lsl(18).lor(code2.land(0x3F).lsl(12)).lor(
-                      code3.land(0x3F).lsl(6),
-                    ).lor(code4.land(0x3F)),
-                  ),
-                  offset + 4,
-                ),
-              )
-            } else {
-              None
-            } : Option[(Char, Int)])?
-          Some((char, aux(new_offset)))
+        if offset >= str.length() {
+          return None
+        }
+        let ch = str[offset]
+        if ch.to_int() >= 0xd800 && ch.to_int() <= 0xdbff {
+          abort("Not here")
+          let ch2 = str[offset + 1]
+          Some(
+            (
+              Char::from_int(
+                0x10000 + ch.to_int().lsl(10) + ch2.to_int() - 0xdc00,
+              ),
+              aux(offset + 2),
+            ),
+          )
         } else {
-          None
+          Some((ch, aux(offset + 1)))
         }
       },
     )
@@ -110,20 +79,28 @@ pub fn Seq::from_string(str : String) -> Seq[Char] {
   aux(0)
 }
 
+pub fn length[T](self : Seq[T]) -> Int {
+  loop self.uncons(), 0 {
+    None, cumul => cumul
+    Some((_, tl)), cumul => continue tl.uncons(), cumul + 1
+  }
+}
+
+pub fn to_string[T : Show](self : Seq[T]) -> String {
+  loop self.uncons(), "" {
+    None, cumul => cumul
+    Some((hd, tl)), cumul => continue tl.uncons(), cumul + hd.to_string()
+  }
+}
+
 test "Seq from string" {
   let sequence = Seq::from_string("沪A")
-  if sequence.is_empty() {
-    abort("sequence is not empty")
-  }
+  @assertion.assert_eq(sequence.length(), 2)?
+  @assertion.assert_false(sequence.is_empty())?
   let (hd, sequence) = sequence.uncons().unwrap()
-  if hd != '沪' {
-    abort("sequence should start with '沪'")
-  }
+  @assertion.assert_eq(hd, '沪')?
+  @assertion.assert_false(sequence.is_empty())?
   let (hd, sequence) = sequence.uncons().unwrap()
-  if hd != 'A' {
-    abort("sequence should start with 'A")
-  }
-  if sequence.is_empty().not() {
-    abort("sequence should be empty")
-  }
+  @assertion.assert_eq(hd, 'A')?
+  @assertion.assert_true(sequence.is_empty())?
 }
