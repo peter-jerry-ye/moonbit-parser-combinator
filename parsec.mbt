@@ -50,7 +50,7 @@ pub fn sequence[Token, A](
 ) -> Parser[Token, List[A]] {
   let consP = lift2(fn(hd, tl) { List::Cons(hd, tl) })
   match parser_list {
-    Nil => pconst(Nil)
+    Nil => pconst(List::Nil)
     Cons(hd, tl) => consP(hd, sequence(tl))
   }
 }
@@ -126,7 +126,7 @@ pub fn Parser::repeat_n_with_sep[Token, A, B](
   if n < 0 {
     pfail()
   } else if n == 0 {
-    pconst(Array::default())
+    pconst([])
   } else if n == 1 {
     self.map(fn(v) { Array::make(1, v) })
   } else {
@@ -162,7 +162,7 @@ pub fn Parser::repeat_0_to_n_with_sep[Token, A, B](
   if n < 0 {
     pfail()
   } else if n == 0 {
-    pconst(Nil)
+    pconst(List::Nil)
   } else {
     Parser(
       fn(seq) {
@@ -255,7 +255,7 @@ test "repeat" {
 pub fn Parser::optional[Token, A](
   self : Parser[Token, A]
 ) -> Parser[Token, Option[A]] {
-  self.map(Option::Some).or_else(pconst(None))
+  self.map(@option.some).or_else(pconst(Option::None))
 }
 
 pub fn Parser::omit_first[Token, A, B](
