@@ -1,5 +1,5 @@
 /// A possibily infinate lazy list
-pub type Seq[T] () -> Option[(T, Seq[T])] derive(Debug)
+pub type Seq[T] () -> (T, Seq[T])? derive(Debug)
 
 /// Checks if the sequence is empty
 pub fn Seq::is_empty[T](seq : Seq[T]) -> Bool {
@@ -18,7 +18,7 @@ pub fn Seq::default[T]() -> Seq[T] {
 /// If `seq` is empty, then `seq.uncons()` is `None`  
 /// Else is `Some(hd, tl)` where `hd` is the head of the sequence
 /// and `tl` is the tail
-pub fn Seq::uncons[T](seq : Seq[T]) -> Option[(T, Seq[T])] {
+pub fn Seq::uncons[T](seq : Seq[T]) -> (T, Seq[T])? {
   (seq.0)()
 }
 
@@ -26,12 +26,7 @@ pub fn Seq::uncons[T](seq : Seq[T]) -> Option[(T, Seq[T])] {
 ///
 /// If the sequence is x0, x1, ... then `seq.map(f)` is f(x0), f(x1), ...
 pub fn Seq::map[T1, T2](seq : Seq[T1], f : (T1) -> T2) -> Seq[T2] {
-  Seq(
-    fn() {
-      let (hd, tl) = seq.uncons()?
-      Some((f(hd), tl.map(f)))
-    },
-  )
+  Seq(fn() { seq.uncons().map(fn { (hd, tl) => (f(hd), tl.map(f)) }) })
 }
 
 /// Construct a sequence from list
@@ -53,13 +48,12 @@ pub fn Seq::from_list[T](list : List[T]) -> Seq[T] {
 pub fn Seq::from_string(str : String) -> Seq[Char] {
   fn aux(offset : Int) -> Seq[Char] {
     Seq(
-      fn() -> Option[(Char, Seq[Char])] {
+      fn() -> (Char, Seq[Char])? {
         if offset >= str.length() {
           return None
         }
         let ch = str[offset]
         if ch.to_int() >= 0xd800 && ch.to_int() <= 0xdbff {
-          abort("Not here")
           let ch2 = str[offset + 1]
           Some(
             (
@@ -97,10 +91,13 @@ test "Seq from string" {
   let sequence = Seq::from_string("沪A")
   @assertion.assert_eq(sequence.length(), 2)?
   @assertion.assert_false(sequence.is_empty())?
-  let (hd, sequence) = sequence.uncons().unwrap()
-  @assertion.assert_eq(hd, '沪')?
+  inspect(sequence.uncons(), content="Some((沪, A))")?
+  let (_, sequence) = sequence.uncons().unwrap()
   @assertion.assert_false(sequence.is_empty())?
-  let (hd, sequence) = sequence.uncons().unwrap()
-  @assertion.assert_eq(hd, 'A')?
+  inspect(sequence.uncons(), content="Some((A, ))")?
+  let (_, sequence) = sequence.uncons().unwrap()
   @assertion.assert_true(sequence.is_empty())?
+  let sequence = Seq::from_string("🀄️")
+  @assertion.assert_eq(sequence.length(), 2)?
+  inspect(sequence.uncons(), content="Some((🀄, \u{fe0f}))")?
 }

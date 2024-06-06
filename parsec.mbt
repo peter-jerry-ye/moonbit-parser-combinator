@@ -1,5 +1,5 @@
 /// A parser combinator
-pub type Parser[Token, Value] (Seq[Token]) -> Option[(Value, Seq[Token])]
+pub type Parser[Token, Value] (Seq[Token]) -> (Value, Seq[Token])?
 
 /// Parses a sequence of tokens
 ///
@@ -9,7 +9,7 @@ pub type Parser[Token, Value] (Seq[Token]) -> Option[(Value, Seq[Token])]
 pub fn Parser::parse[Token, Value](
   self : Parser[Token, Value],
   sequence : Seq[Token]
-) -> Option[(Value, Seq[Token])] {
+) -> (Value, Seq[Token])? {
   (self.0)(sequence)
 }
 
@@ -18,7 +18,7 @@ pub fn Parser::parse[Token, Value](
 /// The predicate should return `Some(value)` if the tokens fulfills
 /// or `None` otherwise
 pub fn pvalue[Token, Value](
-  predicate : (Token) -> Option[Value]
+  predicate : (Token) -> Value?
 ) -> Parser[Token, Value] {
   Parser(
     fn(seq) {
@@ -46,13 +46,37 @@ pub fn lift2[Token, A, B, C](
 }
 
 pub fn sequence[Token, A](
-  parser_list : List[Parser[Token, A]]
-) -> Parser[Token, List[A]] {
-  let consP = lift2(fn(hd, tl) { List::Cons(hd, tl) })
-  match parser_list {
-    Nil => pconst(List::Nil)
-    Cons(hd, tl) => consP(hd, sequence(tl))
-  }
+  parsers : Array[Parser[Token, A]]
+) -> Parser[Token, Array[A]] {
+  Parser(
+    fn(tokens) {
+      let result : Array[A] = []
+      let mut tokens = @option.some(tokens)
+      parsers.iter(
+        fn(parser) {
+          match tokens {
+            Some(ts) =>
+              tokens = parser.parse(ts).map(
+                fn {
+                  (hd, tl) => {
+                    result.push(hd)
+                    tl
+                  }
+                },
+              )
+            None => ()
+          }
+        },
+      )
+      tokens.map(fn(tokens) { (result, tokens) })
+    },
+  )
+}
+
+test "sequence" {
+  let parser = sequence([pchar('a'), pchar('b'), pchar('c')])
+  inspect(parser.parse(Seq::from_string("abc")), content="Some(([a, b, c], ))")?
+  inspect(parser.parse(Seq::from_string("ab")), content="None")?
 }
 
 pub fn Parser::and_then[Token, A, B](
@@ -84,11 +108,11 @@ pub fn Parser::or_else[Token, A](
 
 pub fn Parser::or_others[Token, A](
   self : Parser[Token, A],
-  others : List[Parser[Token, A]]
+  others : ArrayView[Parser[Token, A]]
 ) -> Parser[Token, A] {
   match others {
-    Nil => self
-    Cons(hd, tl) => self.or_else(hd.or_others(tl))
+    [] => self
+    [hd, .. as tl] => self.or_else(hd.or_others(tl))
   }
 }
 
@@ -135,13 +159,13 @@ pub fn Parser::repeat_n_with_sep[Token, A, B](
         let (hd, tl) = self.parse(seq)?
         let array = Array::make(n, hd)
         let parser = sep.and_then(self).omit_first()
-        let mut rest = tl
-        for i = 0; i < n - 1; i = i + 1 {
+        for i = 0, rest = tl; i < n - 1; {
           let (hd, tl) = parser.parse(rest)?
           array[i + 1] = hd
-          rest = tl
+          continue i + 1, tl
+        } else {
+          Some((array, rest))
         }
-        Some((array, rest))
       },
     )
   }
@@ -150,7 +174,7 @@ pub fn Parser::repeat_n_with_sep[Token, A, B](
 pub fn Parser::repeat_0_to_n[Token, A](
   self : Parser[Token, A],
   n : Int
-) -> Parser[Token, List[A]] {
+) -> Parser[Token, Array[A]] {
   self.repeat_0_to_n_with_sep(n, pconst(()))
 }
 
@@ -158,30 +182,30 @@ pub fn Parser::repeat_0_to_n_with_sep[Token, A, B](
   self : Parser[Token, A],
   n : Int,
   separator : Parser[Token, B]
-) -> Parser[Token, List[A]] {
+) -> Parser[Token, Array[A]] {
   if n < 0 {
     pfail()
   } else if n == 0 {
-    pconst(List::Nil)
+    pconst([])
   } else {
     Parser(
       fn(seq) {
         let sep_self = separator.and_then(self).omit_first()
         match self.parse(seq) {
-          None => return Some((Nil, seq))
+          None => return Some(([], seq))
           Some((hd, tl)) => {
-            let mut result = List::Cons(hd, Nil)
-            let mut input = tl
-            for i = 0; i < n - 1; i = i + 1 {
-              match sep_self.parse(input) {
-                None => break
+            let result = [hd]
+            for i = 0, rest = tl; i < n - 1; {
+              match sep_self.parse(rest) {
                 Some((hd, tl)) => {
-                  result = Cons(hd, result)
-                  input = tl
+                  result.push(hd)
+                  continue i + 1, tl
                 }
+                None => break Some((result, rest))
               }
+            } else {
+              Some((result, rest))
             }
-            Some((reverse(result), input))
           }
         }
       },
@@ -191,28 +215,32 @@ pub fn Parser::repeat_0_to_n_with_sep[Token, A, B](
 
 pub fn Parser::repeat[Token, A](
   self : Parser[Token, A]
-) -> Parser[Token, List[A]] {
+) -> Parser[Token, Array[A]] {
   self.repeat_with_sep(pconst(()))
 }
 
 pub fn Parser::repeat_with_sep[Token, A, B](
   self : Parser[Token, A],
   separator : Parser[Token, B]
-) -> Parser[Token, List[A]] {
+) -> Parser[Token, Array[A]] {
   Parser(
     fn(seq) {
       let sep_self = separator.and_then(self).omit_first()
       match self.parse(seq) {
-        None => return Some((Nil, seq))
+        None => return Some(([], seq))
         Some((hd, tl)) => {
-          let (input, result) = loop tl, List::Cons(hd, Nil) {
-            input, result =>
+          let result = [hd]
+          let input = loop tl {
+            input =>
               match sep_self.parse(input) {
-                Some((hd, tl)) => continue tl, Cons(hd, result)
-                None => (input, result)
+                Some((hd, tl)) => {
+                  result.push(hd)
+                  continue tl
+                }
+                None => input
               }
           }
-          Some((reverse(result), input))
+          Some((result, input))
         }
       }
     },
@@ -235,26 +263,21 @@ test "repeat" {
   let repeat_0_to_n = parser.repeat_0_to_n(3)
   inspect(
     repeat_0_to_n.parse(Seq::from_string("0110")),
-    content="Some((List::[0, 1, 1], 0))",
+    content="Some(([0, 1, 1], 0))",
   )?
   inspect(
     repeat_0_to_n.parse(Seq::from_string("01210")),
-    content="Some((List::[0, 1], 210))",
+    content="Some(([0, 1], 210))",
   )?
-  inspect(
-    repeat_0_to_n.parse(Seq::from_string("2")),
-    content="Some((List::[], 2))",
-  )?
+  inspect(repeat_0_to_n.parse(Seq::from_string("2")), content="Some(([], 2))")?
   let repeat = parser.repeat()
   inspect(
     repeat.parse(Seq::from_string("0110")),
-    content="Some((List::[0, 1, 1, 0], ))",
+    content="Some(([0, 1, 1, 0], ))",
   )?
 }
 
-pub fn Parser::optional[Token, A](
-  self : Parser[Token, A]
-) -> Parser[Token, Option[A]] {
+pub fn Parser::optional[Token, A](self : Parser[Token, A]) -> Parser[Token, A?] {
   self.map(@option.some).or_else(pconst(Option::None))
 }
 
@@ -281,46 +304,9 @@ pub fn Parser::ref[Token, A](self : Ref[Parser[Token, A]]) -> Parser[Token, A] {
   Parser(fn(str) { self.val.parse(str) })
 }
 
-// helper functions. TODO: replace with std
-
-fn reverse[X](list : List[X]) -> List[X] {
-  fn go(acc, xs : List[X]) {
-    match xs {
-      Nil => acc
-      Cons(x, rest) => go((Cons(x, acc) : List[X]), rest)
-    }
-  }
-
-  go(Nil, list)
-}
-
-fn when[T](predicate : Bool, value : T) -> Option[T] {
-  if predicate {
-    Some(value)
-  } else {
-    None
-  }
-}
-
-fn fold_left[A, B](l : List[A], f : (B, A) -> B, b : B) -> B {
-  match l {
-    Nil => b
-    Cons(hd, tl) => fold_left(tl, f, f(b, hd))
-  }
-}
-
-fn fold_right[A, B](array : Array[A], f : (A, B) -> B, b : B) -> B {
-  let mut result = b
-  for i = array.length() - 1; i >= 0; i = i - 1 {
-    result = f(array[i], result)
-  }
-  result
-}
-
 // String specific parsers
-
 pub fn pchar_such_that(predicate : (Char) -> Bool) -> Parser[Char, Char] {
-  pvalue(fn { char => when(predicate(char), char) })
+  pvalue(fn { char => @option.when(predicate(char), fn() { char }) })
 }
 
 pub fn pchar(char : Char) -> Parser[Char, Char] {
@@ -333,15 +319,14 @@ pub fn pchar(char : Char) -> Parser[Char, Char] {
 pub let pdigit : Parser[Char, Int] = one_of([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 
 pub fn one_of[A : Show](array : Array[A]) -> Parser[Char, A] {
-  fold_right(
-    array,
-    fn(i, p) { pstring(i.to_string()).map(fn(_str) { i }).or_else(p) },
-    pfail(),
+  array.fold_right(
+    fn(p, i) { pstring(i.to_string()).map(fn(_str) { i }).or_else(p) },
+    init=pfail(),
   )
 }
 
-let pdigits : Parser[Char, (Option[Char], (Int, List[Int]))] = pchar('-').optional().and_then(
-  pchar('0').map(fn(_ch) { (0, List::Nil) }).or_else(
+let pdigits : Parser[Char, (Char?, (Int, Array[Int]))] = pchar('-').optional().and_then(
+  pchar('0').map(fn(_ch) { (0, []) }).or_else(
     pvalue(
       fn {
         '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' as char =>
@@ -359,7 +344,7 @@ pub let pint : Parser[Char, Int] = pdigits.map(
   fn(tuple) {
     let sign = tuple.0
     let digits = tuple.1
-    let i = fold_left(digits.1, fn(a, b) { 10 * a + b }, digits.0)
+    let i = digits.1.fold_left(fn(a, b) { 10 * a + b }, init=digits.0)
     match sign {
       Some(_) => -i
       None => i
@@ -374,10 +359,9 @@ pub let pint64 : Parser[Char, Int64] = pdigits.map(
   fn(tuple) {
     let sign = tuple.0
     let digits = tuple.1
-    let i = fold_left(
-      digits.1,
+    let i = digits.1.fold_left(
       fn(a, b) { 10L * a + b.to_int64() },
-      digits.0.to_int64(),
+      init=digits.0.to_int64(),
     )
     match sign {
       Some(_) => -i
