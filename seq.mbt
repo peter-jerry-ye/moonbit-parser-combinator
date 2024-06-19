@@ -30,7 +30,7 @@ pub fn Seq::map[T1, T2](seq : Seq[T1], f : (T1) -> T2) -> Seq[T2] {
 }
 
 /// Construct a sequence from list
-pub fn Seq::from_list[T](list : List[T]) -> Seq[T] {
+pub fn Seq::from_list[T](list : @immut/list.List[T]) -> Seq[T] {
   Seq(
     fn() {
       match list {
