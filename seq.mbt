@@ -87,17 +87,17 @@ pub fn to_string[T : Show](self : Seq[T]) -> String {
   }
 }
 
-test "Seq from string" {
+test "panic Seq from string" {
   let sequence = Seq::from_string("沪A")
-  @assertion.assert_eq(sequence.length(), 2)?
-  @assertion.assert_false(sequence.is_empty())?
-  inspect(sequence.uncons(), content="Some((沪, A))")?
-  let (_, sequence) = sequence.uncons().unwrap()
-  @assertion.assert_false(sequence.is_empty())?
-  inspect(sequence.uncons(), content="Some((A, ))")?
-  let (_, sequence) = sequence.uncons().unwrap()
-  @assertion.assert_true(sequence.is_empty())?
+  @test.eq(sequence.length(), 2)!
+  @test.is_false(sequence.is_empty())!
+  inspect(sequence.uncons(), content="Some((沪, A))")!
+  let (_, sequence) = sequence.uncons().or_error("Shouldn't happen")!
+  @test.is_false(sequence.is_empty())!
+  inspect(sequence.uncons(), content="Some((A, ))")!
+  let (_, sequence) = sequence.uncons().or_error("Shouldn't happen")!
+  @test.is_true(sequence.is_empty())!
   let sequence = Seq::from_string("🀄️")
-  @assertion.assert_eq(sequence.length(), 2)?
-  inspect(sequence.uncons(), content="Some((🀄, \u{fe0f}))")?
+  @test.eq(sequence.length(), 2)!
+  inspect(sequence.uncons(), content="Some((🀄, \u{fe0f}))")!
 }

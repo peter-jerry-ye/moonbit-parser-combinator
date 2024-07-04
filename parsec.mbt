@@ -52,7 +52,7 @@ pub fn sequence[Token, A](
     fn(tokens) {
       let result : Array[A] = []
       let mut tokens = @option.some(tokens)
-      parsers.iter(
+      parsers.each(
         fn(parser) {
           match tokens {
             Some(ts) =>
@@ -75,8 +75,8 @@ pub fn sequence[Token, A](
 
 test "sequence" {
   let parser = sequence([pchar('a'), pchar('b'), pchar('c')])
-  inspect(parser.parse(Seq::from_string("abc")), content="Some(([a, b, c], ))")?
-  inspect(parser.parse(Seq::from_string("ab")), content="None")?
+  inspect(parser.parse(Seq::from_string("abc")), content="Some(([a, b, c], ))")!
+  inspect(parser.parse(Seq::from_string("ab")), content="None")!
 }
 
 pub fn Parser::and_then[Token, A, B](
@@ -259,22 +259,22 @@ test "repeat" {
   inspect(
     repeat_n.parse(Seq::from_string("0110")),
     content="Some(([0, 1, 1], 0))",
-  )?
+  )!
   let repeat_0_to_n = parser.repeat_0_to_n(3)
   inspect(
     repeat_0_to_n.parse(Seq::from_string("0110")),
     content="Some(([0, 1, 1], 0))",
-  )?
+  )!
   inspect(
     repeat_0_to_n.parse(Seq::from_string("01210")),
     content="Some(([0, 1], 210))",
-  )?
-  inspect(repeat_0_to_n.parse(Seq::from_string("2")), content="Some(([], 2))")?
+  )!
+  inspect(repeat_0_to_n.parse(Seq::from_string("2")), content="Some(([], 2))")!
   let repeat = parser.repeat()
   inspect(
     repeat.parse(Seq::from_string("0110")),
     content="Some(([0, 1, 1, 0], ))",
-  )?
+  )!
 }
 
 pub fn Parser::optional[Token, A](self : Parser[Token, A]) -> Parser[Token, A?] {
@@ -371,11 +371,11 @@ pub let pint64 : Parser[Char, Int64] = pdigits.map(
 )
 
 test "pint" {
-  inspect(pint.parse(Seq::from_string("12345")), content="Some((12345, ))")?
-  inspect(pint.parse(Seq::from_string("-0")), content="Some((0, ))")?
-  inspect(pint.parse(Seq::from_string("0")), content="Some((0, ))")?
-  inspect(pint.parse(Seq::from_string("-01")), content="Some((0, 1))")?
-  inspect(pint.parse(Seq::from_string("-100")), content="Some((-100, ))")?
+  inspect(pint.parse(Seq::from_string("12345")), content="Some((12345, ))")!
+  inspect(pint.parse(Seq::from_string("-0")), content="Some((0, ))")!
+  inspect(pint.parse(Seq::from_string("0")), content="Some((0, ))")!
+  inspect(pint.parse(Seq::from_string("-01")), content="Some((0, 1))")!
+  inspect(pint.parse(Seq::from_string("-100")), content="Some((-100, ))")!
 }
 
 /// parser that tries to match the given string
@@ -405,6 +405,6 @@ test "pstring" {
   inspect(
     parser.parse(Seq::from_string("asdfjkl;")),
     content="Some((asdf, jkl;))",
-  )?
-  inspect(parser.parse(Seq::from_string("jkl;")), content="None")?
+  )!
+  inspect(parser.parse(Seq::from_string("jkl;")), content="None")!
 }
