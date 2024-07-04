@@ -58,7 +58,7 @@ pub fn Seq::from_string(str : String) -> Seq[Char] {
           Some(
             (
               Char::from_int(
-                0x10000 + ch.to_int().lsl(10) + ch2.to_int() - 0xdc00,
+                0x10000 + (ch.to_int() - 0xd800).lsl(10) + ch2.to_int() - 0xdc00,
               ),
               aux(offset + 2),
             ),
@@ -87,7 +87,7 @@ pub fn to_string[T : Show](self : Seq[T]) -> String {
   }
 }
 
-test "panic Seq from string" {
+test "Seq from string" {
   let sequence = Seq::from_string("沪A")
   @test.eq(sequence.length(), 2)!
   @test.is_false(sequence.is_empty())!
