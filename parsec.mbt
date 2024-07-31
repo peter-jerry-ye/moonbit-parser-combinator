@@ -22,8 +22,14 @@ pub fn pvalue[Token, Value](
 ) -> Parser[Token, Value] {
   Parser(
     fn(seq) {
-      let (hd, rest) = seq.uncons()?
-      let value = predicate(hd)?
+      let (hd, rest) = match seq.uncons() {
+        Some(s) => s
+        None => return None
+      }
+      let value = match predicate(hd) {
+        Some(s) => s
+        None => return None
+      }
       Some((value, rest))
     },
   )
@@ -75,8 +81,8 @@ pub fn sequence[Token, A](
 
 test "sequence" {
   let parser = sequence([pchar('a'), pchar('b'), pchar('c')])
-  inspect(parser.parse(Seq::from_string("abc")), content="Some(([a, b, c], ))")!
-  inspect(parser.parse(Seq::from_string("ab")), content="None")!
+  inspect!(parser.parse(Seq::from_string("abc")), content="Some((['a', 'b', 'c'], ))")
+  inspect!(parser.parse(Seq::from_string("ab")), content="None")
 }
 
 pub fn Parser::and_then[Token, A, B](
@@ -85,8 +91,14 @@ pub fn Parser::and_then[Token, A, B](
 ) -> Parser[Token, (A, B)] {
   Parser(
     fn(tokens) {
-      let (a, rest) = self.parse(tokens)?
-      let (b, rest2) = other.parse(rest)?
+      let (a, rest) = match self.parse(tokens) {
+        None => return None
+        Some(s) => s
+      }
+      let (b, rest2) = match other.parse(rest) {
+        None => return None
+        Some(s) => s
+      }
       Some(((a, b), rest2))
     },
   )
@@ -122,7 +134,10 @@ pub fn Parser::map[Token, A, B](
 ) -> Parser[Token, B] {
   Parser(
     fn(tokens) {
-      let (a, rest) = self.parse(tokens)?
+      let (a, rest) = match self.parse(tokens) {
+        None => return None
+        Some(s) => s
+      }
       Some((f(a), rest))
     },
   )
@@ -156,11 +171,17 @@ pub fn Parser::repeat_n_with_sep[Token, A, B](
   } else {
     Parser(
       fn(seq) {
-        let (hd, tl) = self.parse(seq)?
+        let (hd, tl) = match self.parse(seq) {
+          None => return None
+          Some(s) => s
+        }
         let array = Array::make(n, hd)
         let parser = sep.and_then(self).omit_first()
         for i = 0, rest = tl; i < n - 1; {
-          let (hd, tl) = parser.parse(rest)?
+          let (hd, tl) = match parser.parse(rest) {
+            None => return None
+            Some(s) => s
+          }
           array[i + 1] = hd
           continue i + 1, tl
         } else {
@@ -256,25 +277,25 @@ test "repeat" {
     },
   )
   let repeat_n = parser.repeat_n(3)
-  inspect(
+  inspect!(
     repeat_n.parse(Seq::from_string("0110")),
-    content="Some(([0, 1, 1], 0))",
-  )!
+    content="Some(([0, 1, 1], '0'))",
+  )
   let repeat_0_to_n = parser.repeat_0_to_n(3)
-  inspect(
+  inspect!(
     repeat_0_to_n.parse(Seq::from_string("0110")),
-    content="Some(([0, 1, 1], 0))",
-  )!
-  inspect(
+    content="Some(([0, 1, 1], '0'))",
+  )
+  inspect!(
     repeat_0_to_n.parse(Seq::from_string("01210")),
-    content="Some(([0, 1], 210))",
-  )!
-  inspect(repeat_0_to_n.parse(Seq::from_string("2")), content="Some(([], 2))")!
+    content="Some(([0, 1], '2''1''0'))",
+  )
+  inspect!(repeat_0_to_n.parse(Seq::from_string("2")), content="Some(([], '2'))")
   let repeat = parser.repeat()
-  inspect(
+  inspect!(
     repeat.parse(Seq::from_string("0110")),
     content="Some(([0, 1, 1, 0], ))",
-  )!
+  )
 }
 
 pub fn Parser::optional[Token, A](self : Parser[Token, A]) -> Parser[Token, A?] {
@@ -371,11 +392,11 @@ pub let pint64 : Parser[Char, Int64] = pdigits.map(
 )
 
 test "pint" {
-  inspect(pint.parse(Seq::from_string("12345")), content="Some((12345, ))")!
-  inspect(pint.parse(Seq::from_string("-0")), content="Some((0, ))")!
-  inspect(pint.parse(Seq::from_string("0")), content="Some((0, ))")!
-  inspect(pint.parse(Seq::from_string("-01")), content="Some((0, 1))")!
-  inspect(pint.parse(Seq::from_string("-100")), content="Some((-100, ))")!
+  inspect!(pint.parse(Seq::from_string("12345")), content="Some((12345, ))")
+  inspect!(pint.parse(Seq::from_string("-0")), content="Some((0, ))")
+  inspect!(pint.parse(Seq::from_string("0")), content="Some((0, ))")
+  inspect!(pint.parse(Seq::from_string("-01")), content="Some((0, '1'))")
+  inspect!(pint.parse(Seq::from_string("-100")), content="Some((-100, ))")
 }
 
 /// parser that tries to match the given string
@@ -385,8 +406,14 @@ pub fn pstring(string : String) -> Parser[Char, String] {
       let iter = loop seq, Seq::from_string(string) {
         iter, input => {
           if input.is_empty().not() {
-            let (target, rest_target) = input.uncons()?
-            let (char, rest) = iter.uncons()?
+            let (target, rest_target) = match input.uncons() {
+              None => return None
+              Some(s) => s
+            }
+            let (char, rest) = match iter.uncons() {
+              None => return None
+              Some(s) => s
+            }
             if target != char {
               return None
             }
@@ -402,9 +429,10 @@ pub fn pstring(string : String) -> Parser[Char, String] {
 
 test "pstring" {
   let parser = pstring("asdf")
-  inspect(
+  inspect!(
     parser.parse(Seq::from_string("asdfjkl;")),
-    content="Some((asdf, jkl;))",
-  )!
-  inspect(parser.parse(Seq::from_string("jkl;")), content="None")!
+    content=
+      #|Some(("asdf", 'j''k''l'';'))
+  )
+  inspect!(parser.parse(Seq::from_string("jkl;")), content="None")
 }

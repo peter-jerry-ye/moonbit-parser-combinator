@@ -1,5 +1,5 @@
 /// A possibily infinate lazy list
-pub type Seq[T] () -> (T, Seq[T])? derive(Debug)
+pub type Seq[T] () -> (T, Seq[T])?
 
 /// Checks if the sequence is empty
 pub fn Seq::is_empty[T](seq : Seq[T]) -> Bool {
@@ -30,7 +30,7 @@ pub fn Seq::map[T1, T2](seq : Seq[T1], f : (T1) -> T2) -> Seq[T2] {
 }
 
 /// Construct a sequence from list
-pub fn Seq::from_list[T](list : @immut/list.List[T]) -> Seq[T] {
+pub fn Seq::from_list[T](list : @immut/list.T[T]) -> Seq[T] {
   Seq(
     fn() {
       match list {
@@ -42,9 +42,6 @@ pub fn Seq::from_list[T](list : @immut/list.List[T]) -> Seq[T] {
 }
 
 /// Construct a sequence from string
-///
-/// Contents are copied, so no modification to the original string
-/// will affect the sequence.  
 pub fn Seq::from_string(str : String) -> Seq[Char] {
   fn aux(offset : Int) -> Seq[Char] {
     Seq(
@@ -73,6 +70,18 @@ pub fn Seq::from_string(str : String) -> Seq[Char] {
   aux(0)
 }
 
+/// Construct a sequence from array
+pub fn Seq::from_array[T](array : ArrayView[T]) -> Seq[T] {
+  Seq(
+    fn() {
+      match array {
+        [] => None
+        [hd, .. as rest] => Some((hd, Seq::from_array(rest)))
+      }
+    },
+  )
+}
+
 pub fn length[T](self : Seq[T]) -> Int {
   loop self.uncons(), 0 {
     None, cumul => cumul
@@ -87,17 +96,42 @@ pub fn to_string[T : Show](self : Seq[T]) -> String {
   }
 }
 
+pub fn Seq::output[T : Show](self : Seq[T], log : Logger) -> Unit {
+  loop self.uncons() {
+    None => ()
+    Some((hd, tl)) => {
+      (hd as Show).output(log)
+      continue tl.uncons()
+    }
+  }
+}
+
 test "Seq from string" {
   let sequence = Seq::from_string("沪A")
-  @test.eq(sequence.length(), 2)!
-  @test.is_false(sequence.is_empty())!
-  inspect(sequence.uncons(), content="Some((沪, A))")!
-  let (_, sequence) = sequence.uncons().or_error("Shouldn't happen")!
-  @test.is_false(sequence.is_empty())!
-  inspect(sequence.uncons(), content="Some((A, ))")!
-  let (_, sequence) = sequence.uncons().or_error("Shouldn't happen")!
-  @test.is_true(sequence.is_empty())!
+  @test.eq!(sequence.length(), 2)
+  @test.is_false!(sequence.is_empty())
+  inspect!(sequence.uncons(), content="Some(('沪', 'A'))")
+  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
+  @test.is_false!(sequence.is_empty())
+  inspect!(sequence.uncons(), content="Some(('A', ))")
+  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
+  @test.is_true!(sequence.is_empty())
   let sequence = Seq::from_string("🀄️")
-  @test.eq(sequence.length(), 2)!
-  inspect(sequence.uncons(), content="Some((🀄, \u{fe0f}))")!
+  @test.eq!(sequence.length(), 2)
+  inspect!(sequence.uncons(), content="Some(('🀄', '\u{fe0f}'))")
+}
+
+test "Seq from array" {
+  let sequence = Seq::from_array("沪A".iter().collect()[:])
+  @test.eq!(sequence.length(), 2)
+  @test.is_false!(sequence.is_empty())
+  inspect!(sequence.uncons(), content="Some(('沪', 'A'))")
+  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
+  @test.is_false!(sequence.is_empty())
+  inspect!(sequence.uncons(), content="Some(('A', ))")
+  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
+  @test.is_true!(sequence.is_empty())
+  let sequence = Seq::from_array("🀄️".iter().collect()[:])
+  @test.eq!(sequence.length(), 2)
+  inspect!(sequence.uncons(), content="Some(('🀄', '\u{fe0f}'))")
 }
