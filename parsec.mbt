@@ -10,7 +10,7 @@ pub fn Parser::parse[Token, Value](
   self : Parser[Token, Value],
   sequence : Seq[Token]
 ) -> (Value, Seq[Token])? {
-  (self.0)(sequence)
+  (self._)(sequence)
 }
 
 /// Parses a token with predicate
@@ -62,14 +62,16 @@ pub fn sequence[Token, A](
         fn(parser) {
           match tokens {
             Some(ts) =>
-              tokens = parser.parse(ts).map(
-                fn {
-                  (hd, tl) => {
-                    result.push(hd)
-                    tl
-                  }
-                },
-              )
+              tokens = parser
+                .parse(ts)
+                .map(
+                  fn {
+                    (hd, tl) => {
+                      result.push(hd)
+                      tl
+                    }
+                  },
+                )
             None => ()
           }
         },
@@ -81,7 +83,10 @@ pub fn sequence[Token, A](
 
 test "sequence" {
   let parser = sequence([pchar('a'), pchar('b'), pchar('c')])
-  inspect!(parser.parse(Seq::from_string("abc")), content="Some((['a', 'b', 'c'], ))")
+  inspect!(
+    parser.parse(Seq::from_string("abc")),
+    content="Some((['a', 'b', 'c'], ))",
+  )
   inspect!(parser.parse(Seq::from_string("ab")), content="None")
 }
 
@@ -290,7 +295,10 @@ test "repeat" {
     repeat_0_to_n.parse(Seq::from_string("01210")),
     content="Some(([0, 1], '2''1''0'))",
   )
-  inspect!(repeat_0_to_n.parse(Seq::from_string("2")), content="Some(([], '2'))")
+  inspect!(
+    repeat_0_to_n.parse(Seq::from_string("2")),
+    content="Some(([], '2'))",
+  )
   let repeat = parser.repeat()
   inspect!(
     repeat.parse(Seq::from_string("0110")),
@@ -340,23 +348,27 @@ pub fn pchar(char : Char) -> Parser[Char, Char] {
 pub let pdigit : Parser[Char, Int] = one_of([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 
 pub fn one_of[A : Show](array : Array[A]) -> Parser[Char, A] {
-  array.fold_right(
+  array.rev_fold(
     fn(p, i) { pstring(i.to_string()).map(fn(_str) { i }).or_else(p) },
     init=pfail(),
   )
 }
 
-let pdigits : Parser[Char, (Char?, (Int, Array[Int]))] = pchar('-').optional().and_then(
-  pchar('0').map(fn(_ch) { (0, []) }).or_else(
-    pvalue(
-      fn {
-        '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' as char =>
-          Some(char.to_int() - 0x30)
-        _ => None
-      },
-    ).and_then(pdigit.repeat()),
-  ),
-)
+let pdigits : Parser[Char, (Char?, (Int, Array[Int]))] = pchar('-')
+  .optional()
+  .and_then(
+    pchar('0')
+    .map(fn(_ch) { (0, []) })
+    .or_else(
+      pvalue(
+        fn {
+          '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' as char =>
+            Some(char.to_int() - 0x30)
+          _ => None
+        },
+      ).and_then(pdigit.repeat()),
+    ),
+  )
 
 /// parser for integer
 ///
@@ -365,7 +377,7 @@ pub let pint : Parser[Char, Int] = pdigits.map(
   fn(tuple) {
     let sign = tuple.0
     let digits = tuple.1
-    let i = digits.1.fold_left(fn(a, b) { 10 * a + b }, init=digits.0)
+    let i = digits.1.fold(fn(a, b) { 10 * a + b }, init=digits.0)
     match sign {
       Some(_) => -i
       None => i
@@ -380,7 +392,7 @@ pub let pint64 : Parser[Char, Int64] = pdigits.map(
   fn(tuple) {
     let sign = tuple.0
     let digits = tuple.1
-    let i = digits.1.fold_left(
+    let i = digits.1.fold(
       fn(a, b) { 10L * a + b.to_int64() },
       init=digits.0.to_int64(),
     )
@@ -433,6 +445,7 @@ test "pstring" {
     parser.parse(Seq::from_string("asdfjkl;")),
     content=
       #|Some(("asdf", 'j''k''l'';'))
+    ,
   )
   inspect!(parser.parse(Seq::from_string("jkl;")), content="None")
 }

@@ -3,7 +3,7 @@ pub type Seq[T] () -> (T, Seq[T])?
 
 /// Checks if the sequence is empty
 pub fn Seq::is_empty[T](seq : Seq[T]) -> Bool {
-  match (seq.0)() {
+  match (seq._)() {
     None => true
     Some(_) => false
   }
@@ -19,7 +19,7 @@ pub fn Seq::default[T]() -> Seq[T] {
 /// Else is `Some(hd, tl)` where `hd` is the head of the sequence
 /// and `tl` is the tail
 pub fn Seq::uncons[T](seq : Seq[T]) -> (T, Seq[T])? {
-  (seq.0)()
+  (seq._)()
 }
 
 /// Map the sequence
@@ -108,30 +108,30 @@ pub fn Seq::output[T : Show](self : Seq[T], log : Logger) -> Unit {
 
 test "Seq from string" {
   let sequence = Seq::from_string("沪A")
-  @test.eq!(sequence.length(), 2)
-  @test.is_false!(sequence.is_empty())
+  assert_eq!(sequence.length(), 2)
+  assert_false!(sequence.is_empty())
   inspect!(sequence.uncons(), content="Some(('沪', 'A'))")
-  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
-  @test.is_false!(sequence.is_empty())
+  let (_, sequence) = sequence.uncons().or_error!(Failure("Shouldn't happen"))
+  assert_false!(sequence.is_empty())
   inspect!(sequence.uncons(), content="Some(('A', ))")
-  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
-  @test.is_true!(sequence.is_empty())
+  let (_, sequence) = sequence.uncons().or_error!(Failure("Shouldn't happen"))
+  assert_true!(sequence.is_empty())
   let sequence = Seq::from_string("🀄️")
-  @test.eq!(sequence.length(), 2)
+  assert_eq!(sequence.length(), 2)
   inspect!(sequence.uncons(), content="Some(('🀄', '\u{fe0f}'))")
 }
 
 test "Seq from array" {
   let sequence = Seq::from_array("沪A".iter().collect()[:])
-  @test.eq!(sequence.length(), 2)
-  @test.is_false!(sequence.is_empty())
+  assert_eq!(sequence.length(), 2)
+  assert_false!(sequence.is_empty())
   inspect!(sequence.uncons(), content="Some(('沪', 'A'))")
-  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
-  @test.is_false!(sequence.is_empty())
+  let (_, sequence) = sequence.uncons().or_error!(Failure("Shouldn't happen"))
+  assert_false!(sequence.is_empty())
   inspect!(sequence.uncons(), content="Some(('A', ))")
-  let (_, sequence) = sequence.uncons().or_error!("Shouldn't happen")
-  @test.is_true!(sequence.is_empty())
+  let (_, sequence) = sequence.uncons().or_error!(Failure("Shouldn't happen"))
+  assert_true!(sequence.is_empty())
   let sequence = Seq::from_array("🀄️".iter().collect()[:])
-  @test.eq!(sequence.length(), 2)
+  assert_eq!(sequence.length(), 2)
   inspect!(sequence.uncons(), content="Some(('🀄', '\u{fe0f}'))")
 }

@@ -7,9 +7,9 @@ Support any stream with `Seq` 利用`Seq`支持各类流
 ## Usage 使用方法
 
 ```moonbit
-fn init {
+test {
   let parser = pstring("Hello").and_then(pint)
   let Some(result, _) = parser.parse(Seq::from_string("Hello1234"))
-  debug(result) // "Hello"
+  inspect(result, content="Hello")
 }
 ```
